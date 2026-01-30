@@ -1,11 +1,16 @@
-﻿using MelonLoader;
+﻿using Il2Cpp;
+using Il2CppKeepsake;
+using Il2CppKeepsake.Modal;
+using MelonLoader;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
+using UnityEngine.InputSystem.Utilities;
 using UnityEngine.UI;
+using static Il2CppKeepsake.HyperSpace.NewInputSystem.InputManager;
 
-[assembly: MelonInfo(typeof(ReGUI.Core), "ReGUI", "0.0.1", "GraciousCub5622", null)]
+[assembly: MelonInfo(typeof(ReGUI.Core), "ReGUI", "0.0.2", "GraciousCub5622", null)]
 [assembly: MelonGame("Keepsake Games", "Jump Space")]
 
 namespace ReGUI
@@ -18,28 +23,70 @@ namespace ReGUI
         public static GameObject lobbyHud;
 
         private static MelonPreferences_Category Prefs;
+
         private static MelonPreferences_Entry<string> IncreaseKey;
         private static MelonPreferences_Entry<string> DecreaseKey;
         private static MelonPreferences_Entry<float> EquipmentScale;
+
+        private static MelonPreferences_Entry<string> ToggleCaptionsKey;
+        private static MelonPreferences_Entry<string> ToggleControlsKey;
+        private static MelonPreferences_Entry<string> ToggleCrosshairKey;
+        private static MelonPreferences_Entry<string> ToggleHudKey;
+        private static MelonPreferences_Entry<string> RefreshUIKey1;
+        private static MelonPreferences_Entry<string> RefreshUIKey2;
+        private static MelonPreferences_Entry<string> RefreshUIKey3;
+
+        private static MelonPreferences_Entry<string> ZoomKey;
+        private static MelonPreferences_Entry<float> ZoomFOV;
+        private static MelonPreferences_Entry<float> ZoomSpeed;
+
+        private float originalFOV = -1f;
+
+        private static MelonPreferences_Entry<string> OpenConfigKey;
+        private static MelonPreferences_Entry<string> OpenZoomConfigKey;
+
+        private bool waitingForKeybind;
+        private MelonPreferences_Entry<string> keybindBeingSet;
 
         public override void OnInitializeMelon()
         {
             LoggerInstance.Msg("[ReGUI] Mod Initialized.");
 
             Prefs = MelonPreferences.CreateCategory("CompactUI");
+
             IncreaseKey = Prefs.CreateEntry("IncreaseScaleKey", "F4");
             DecreaseKey = Prefs.CreateEntry("DecreaseScaleKey", "F3");
             EquipmentScale = Prefs.CreateEntry("EquipmentBarScale", 1f);
+
+            ToggleCaptionsKey = Prefs.CreateEntry("ToggleCaptionsKey", "F9");
+            ToggleControlsKey = Prefs.CreateEntry("ToggleControlsKey", "F10");
+            ToggleCrosshairKey = Prefs.CreateEntry("ToggleCrosshairKey", "F11");
+            ToggleHudKey = Prefs.CreateEntry("ToggleHudKey", "F8");
+
+            RefreshUIKey1 = Prefs.CreateEntry("RefreshUIKey1", "F");
+            RefreshUIKey2 = Prefs.CreateEntry("RefreshUIKey2", "Esc");
+            RefreshUIKey3 = Prefs.CreateEntry("RefreshUIKey3", "B");
+
+            ZoomKey = Prefs.CreateEntry("ZoomKey", "Z");
+            ZoomFOV = Prefs.CreateEntry("ZoomFOV", 35f);
+            ZoomSpeed = Prefs.CreateEntry("ZoomSpeed", 10f);
+
+            OpenConfigKey = Prefs.CreateEntry("OpenConfigMenuKey", "[");
+            OpenZoomConfigKey = Prefs.CreateEntry("OpenZoomConfigMenuKey", "]");
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
         {
+            if (sceneName == "Global")
+            { 
+                gui = GameObject.Find("PF_GUI/FullScreenGUI");
+            }
             MelonCoroutines.Start(LongDelayedActivate());
 
-            if (sceneName == "Global")
-                gui = GameObject.Find("PF_GUI/FullScreenGUI");
             if (sceneName == "Dest_Lobby_Start")
                 lobbyHud = GameObject.Find("Gameplay/PF_Destination DestData_Lobby_Start/PF_LobbyHud");
+
+            originalFOV = -1f;
         }
 
         public override void OnApplicationQuit()
@@ -49,29 +96,64 @@ namespace ReGUI
 
         public override void OnLateUpdate()
         {
+
             var kb = Keyboard.current;
             if (kb == null) return;
 
-            if (kb.f9Key.wasPressedThisFrame)
+            try
+            {
+                if (IsKeyPressed(OpenConfigKey.Value, kb) && Global.m_GameSessionState.m_LocalPlayerIsPlaying.Value)
+                {
+                    ShowConfigMenu();
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (IsKeyPressed(OpenZoomConfigKey.Value, kb) && Global.m_GameSessionState.m_LocalPlayerIsPlaying.Value)
+                {
+                    ShowZoomMenu();
+                }
+            }
+            catch { }
+
+            if (waitingForKeybind)
+            {
+                foreach (KeyControl kcode in Keyboard.current.allKeys)
+                {
+                    if (IsKeyPressed(kcode.displayName, kb))
+                    {
+                        keybindBeingSet.Value = kcode.displayName;
+                        waitingForKeybind = false;
+                        keybindBeingSet = null;
+                        MelonPreferences.Save();
+                        ModalManager.CancelAllModals();
+                        MelonLogger.Msg($"[ReGUI] Bound to {kcode.displayName}");
+                    }
+                }
+            }
+
+            if (IsKeyPressed(ToggleCaptionsKey.Value, kb))
             {
                 captions = !captions;
                 MelonCoroutines.Start(ShortDelayedActivate());
             }
 
-            if (kb.f10Key.wasPressedThisFrame)
+            if (IsKeyPressed(ToggleControlsKey.Value, kb))
             {
                 Controls = !Controls;
                 MelonCoroutines.Start(ShortDelayedActivate());
             }
 
-            if (kb.f11Key.wasPressedThisFrame)
+            if (IsKeyPressed(ToggleCrosshairKey.Value, kb))
             {
                 var crosshair = GameObject.Find("PF_GUI/FullScreenGUI/PF_FirstPersonHUD/Crosshairs");
                 if (crosshair != null)
                     crosshair.SetActive(!crosshair.activeSelf);
             }
 
-            if (kb.f8Key.wasPressedThisFrame)
+            if (IsKeyPressed(ToggleHudKey.Value, kb))
             {
                 if (gui == null)
                     gui = GameObject.Find("PF_GUI/FullScreenGUI");
@@ -81,17 +163,289 @@ namespace ReGUI
 
                 if (gui != null)
                     gui.SetActive(!gui.activeSelf);
+
                 if (lobbyHud != null)
                     lobbyHud.SetActive(!lobbyHud.activeSelf);
 
                 MelonCoroutines.Start(ShortDelayedActivate());
             }
 
-            if (kb.fKey.wasPressedThisFrame || kb.escapeKey.wasPressedThisFrame || kb.bKey.wasPressedThisFrame)
+            if (
+                IsKeyPressed(RefreshUIKey1.Value, kb) ||
+                IsKeyPressed(RefreshUIKey2.Value, kb) ||
+                IsKeyPressed(RefreshUIKey3.Value, kb)
+            )
+            {
                 MelonCoroutines.Start(ShortDelayedActivate());
+            }
 
             HandleScaleHotkeys();
+            try { HandleCameraZoom(kb); } catch { }
         }
+
+
+        private void HandleCameraZoom(Keyboard kb)
+        {
+            if (Global.GameSettings.m_FovOnFoot_Setter != null && Global.GameSettings.m_FovOnFoot != null)
+            {
+                try
+                {
+                    if (originalFOV < 0f)
+                        originalFOV = Global.GameSettings.m_FovOnFoot_Setter.Value;
+
+                    bool zoomHeld = TryGetKey(ZoomKey.Value, kb, out var key) && key.isPressed;
+                    float targetFOV = zoomHeld && !Cursor.visible ? ZoomFOV.Value : originalFOV;
+
+                    if (!zoomHeld && Global.GameSettings.m_FovOnFoot.Value != originalFOV && Cursor.visible)
+                    {
+                        originalFOV = Global.GameSettings.m_FovOnFoot.Value;
+                    }
+
+                    Global.GameSettings.m_FovOnFoot_Setter.SetValue(Mathf.Lerp(
+                        Global.GameSettings.m_FovOnFoot_Setter.Value,
+                        targetFOV,
+                        Time.deltaTime * ZoomSpeed.Value
+                        )
+                    );
+                }
+                catch { }
+            }
+        }
+
+        private void ZoomFovModal()
+        {
+            var close = new ModalButton(
+                "Close",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => ModalManager.CancelAllModals())
+                );
+
+            var increase = new ModalButton(
+                $"Increase Zoom FOV",
+                InputKeys.Jump,
+                closeModalOnclick: false,
+                onClick: new System.Action<ModalButton>((_) =>
+                {
+                    ZoomFOV.Value = Mathf.Clamp(ZoomFOV.Value + 5f, 5f, 110f);
+                    MelonPreferences.Save();
+                    ModalManager.CancelAllModals();
+                    ZoomFovModal();
+                })
+            );
+
+            var decrease = new ModalButton(
+                $"Decrease Zoom FOV",
+                InputKeys.Jump,
+                closeModalOnclick: false,
+                onClick: new System.Action<ModalButton>((_) =>
+                {
+                    ZoomFOV.Value = Mathf.Clamp(ZoomFOV.Value - 5f, 5f, 110f);
+                    MelonPreferences.Save();
+                    ModalManager.CancelAllModals();
+                    ZoomFovModal();
+                })
+            );
+
+            ModalManager.ShowModal(
+                "Zoom FOV Adjustment",
+                "Adjust the zoom field of view. Current : " + ZoomFOV.Value,
+                InstigatorPriority.High,
+                new System.Action<ModalRequest>((_) =>
+                {
+                    ModalManager.CancelModal(ModalManager.CurrentModal);
+                }),
+                increase,
+                decrease,
+                close
+            );
+        }
+
+        private void ZoomSpeedModal()
+        {
+            var close = new ModalButton(
+                "Close",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => ModalManager.CancelAllModals())
+                );
+            var increase = new ModalButton(
+                $"Increase Zoom Speed",
+                InputKeys.Jump,
+                closeModalOnclick: false,
+                onClick: new System.Action<ModalButton>((_) =>
+                {
+                    ZoomSpeed.Value = Mathf.Clamp(ZoomSpeed.Value + 1f, 1f, 20f);
+                    MelonPreferences.Save();
+                    ModalManager.CancelAllModals();
+                    ZoomSpeedModal();
+                })
+            );
+            var decrease = new ModalButton(
+                $"Decrease Zoom Speed",
+                InputKeys.Jump,
+                closeModalOnclick: false,
+                onClick: new System.Action<ModalButton>((_) =>
+                {
+                    ZoomSpeed.Value = Mathf.Clamp(ZoomSpeed.Value - 1f, 1f, 20f);
+                    MelonPreferences.Save();
+                    ModalManager.CancelAllModals();
+                    ZoomSpeedModal();
+                })
+            );
+            ModalManager.ShowModal(
+                "Zoom Speed Adjustment",
+                "Adjust the zoom speed. Current : " + ZoomSpeed.Value,
+                InstigatorPriority.High,
+                new System.Action<ModalRequest>((_) =>
+                {
+                    ModalManager.CancelModal(ModalManager.CurrentModal);
+                }),
+                increase,
+                decrease,
+                close
+            );
+        }
+
+        private void ShowZoomMenu()
+        {
+            var close = new ModalButton(
+                "Close",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => ModalManager.CancelAllModals())
+                );
+
+            var zoomKey = new ModalButton(
+                $"Zoom Key: {ZoomKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) =>
+                {
+                    BeginKeyRebind(ZoomKey);
+                })
+            );
+
+            var zoomSpeedSetting = new ModalButton(
+                $"Zoom Speed: {ZoomSpeed.Value}",
+                InputKeys.Jump,
+                
+                onClick: new System.Action<ModalButton>((_) =>
+                {
+                    ZoomSpeedModal();
+                })
+            );
+
+            var zoomSetting = new ModalButton(
+                $"Zoom FOV: {ZoomFOV.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) =>
+                {
+                    ZoomFovModal();
+                })
+            );
+
+            ModalManager.ShowModal(
+                "Zoom Configuration",
+                "Adjust zoom settings here.",
+                InstigatorPriority.High,
+                new System.Action<ModalRequest>((_) =>
+                {
+                    ModalManager.CancelModal(ModalManager.CurrentModal);
+                }),
+                zoomKey,
+                zoomSpeedSetting,
+                zoomSetting,
+                close
+            );
+        }
+
+        private void ShowConfigMenu()
+        {
+            var close = new ModalButton(
+                "Close",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => ModalManager.CancelAllModals())
+                );
+            
+            var incScale = new ModalButton(
+                $"Increase Scale: {IncreaseKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => BeginKeyRebind(IncreaseKey))
+            );
+
+            var decScale = new ModalButton(
+                $"Decrease Scale: {DecreaseKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => BeginKeyRebind(DecreaseKey))
+            );
+
+            var toggleCaptions = new ModalButton(
+                $"Toggle Captions: {ToggleCaptionsKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => BeginKeyRebind(ToggleCaptionsKey))
+            );
+
+            var toggleControls = new ModalButton(
+                $"Toggle Controls: {ToggleControlsKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => BeginKeyRebind(ToggleControlsKey))
+            );
+
+            var toggleCrosshair = new ModalButton(
+                $"Toggle Crosshair: {ToggleCrosshairKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => BeginKeyRebind(ToggleCrosshairKey))
+            );
+
+            var toggleHud = new ModalButton(
+                $"Toggle HUD: {ToggleHudKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => BeginKeyRebind(ToggleHudKey))
+            );
+
+            var zoomKey = new ModalButton(
+                $"Zoom Key: {ZoomKey.Value}",
+                InputKeys.Jump,
+                onClick: new System.Action<ModalButton>((_) => BeginKeyRebind(ZoomKey))
+            );
+
+            ModalManager.ShowModal(
+                "ReGUI Configuration",
+                "Rebind keys or adjust values.\nClick a bind, then press a key.",
+                InstigatorPriority.High,
+                new System.Action<ModalRequest>((_) =>
+                {
+                    ModalManager.CancelModal(ModalManager.CurrentModal);
+                }),
+                incScale,
+                decScale,
+                toggleCaptions,
+                toggleControls,
+                toggleCrosshair,
+                toggleHud,
+                close
+            );
+        }
+
+
+
+
+        private void BeginKeyRebind(MelonPreferences_Entry<string> entry)
+        {
+            waitingForKeybind = true;
+            keybindBeingSet = entry;
+
+            ModalManager.ShowModal(
+                "Rebind Key",
+                $"Press any key to bind:\n{entry.Identifier}",
+                InstigatorPriority.High,
+                new System.Action<ModalRequest>((_) =>
+                {
+                    waitingForKeybind = false;
+                    keybindBeingSet = null;
+                })
+            );
+        }
+
+
+
 
         private void HandleScaleHotkeys()
         {
@@ -103,6 +457,7 @@ namespace ReGUI
                 EquipmentScale.Value = Mathf.Clamp(EquipmentScale.Value + 0.05f, 0.2f, 2.0f);
                 ApplyEquipmentScale();
                 LoggerInstance.Msg($"[CompactUI] Equipment bar scale: {EquipmentScale.Value:F2}");
+                MelonPreferences.Save();
             }
 
             if (TryGetKey(DecreaseKey.Value, kb, out var decKey) && decKey.wasPressedThisFrame)
@@ -110,7 +465,13 @@ namespace ReGUI
                 EquipmentScale.Value = Mathf.Clamp(EquipmentScale.Value - 0.05f, 0.2f, 2.0f);
                 ApplyEquipmentScale();
                 LoggerInstance.Msg($"[CompactUI] Equipment bar scale: {EquipmentScale.Value:F2}");
+                MelonPreferences.Save();
             }
+        }
+
+        private static bool IsKeyPressed(string keyName, Keyboard kb)
+        {
+            return TryGetKey(keyName, kb, out var key) && key.wasPressedThisFrame;
         }
 
         private static bool TryGetKey(string keyName, Keyboard kb, out KeyControl key)
@@ -135,16 +496,12 @@ namespace ReGUI
         {
             MelonPreferences.Load();
 
-            try
-            {
-                ApplyEquipmentScale();
-            }
-            catch { }
+            try { ApplyEquipmentScale(); } catch { }
 
             try
             {
-                var PlayerBar = GameObject.Find("PF_GUI/FullScreenGUI/PF_FirstPersonHUD/PlayerStatusBar/PlayerBar");
-                PlayerBar.GetComponent<Image>().enabled = false;
+                GameObject.Find("PF_GUI/FullScreenGUI/PF_FirstPersonHUD/PlayerStatusBar/PlayerBar")
+                    .GetComponent<Image>().enabled = false;
             }
             catch { }
 
@@ -164,8 +521,8 @@ namespace ReGUI
 
             try
             {
-                var PF_Hints = GameObject.Find("PF_GUI/FullScreenGUI/PF_Hints");
-                PF_Hints.SetActive(captions);
+                GameObject.Find("PF_GUI/FullScreenGUI/PF_Hints")
+                    .SetActive(captions);
             }
             catch { }
 
