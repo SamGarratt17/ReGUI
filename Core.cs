@@ -10,7 +10,7 @@ using UnityEngine.InputSystem.Utilities;
 using UnityEngine.UI;
 using static Il2CppKeepsake.HyperSpace.NewInputSystem.InputManager;
 
-[assembly: MelonInfo(typeof(ReGUI.Core), "ReGUI", "0.0.2", "GraciousCub5622", null)]
+[assembly: MelonInfo(typeof(ReGUI.Core), "ReGUI", "0.0.3", "GraciousCub5622", null)]
 [assembly: MelonGame("Keepsake Games", "Jump Space")]
 
 namespace ReGUI
